@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>PocketVR Sandbox</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#070b16;color:#eef7ff;font:14px system-ui;overflow:hidden}
+header{position:absolute;z-index:5;top:8px;left:10px;right:10px;display:flex;justify-content:space-between;align-items:center;pointer-events:none}
+.brand{font-weight:800;letter-spacing:.08em;color:#69f3ff;text-shadow:0 0 12px #00d9ff}
+button{pointer-events:auto;border:1px solid #3d5c83;border-radius:12px;background:#111d34;color:white;padding:9px 12px;font-weight:700}
+#views{display:grid;grid-template-columns:1fr 1fr;width:100vw;height:100vh}
+.view{position:relative;overflow:hidden;border-right:1px solid #22324c}
+canvas{width:100%;height:100%;display:block}
+#hud{position:absolute;bottom:10px;left:10px;right:10px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;z-index:5}
+#camera{position:fixed;right:8px;bottom:62px;width:112px;height:84px;object-fit:cover;opacity:.45;transform:scaleX(-1);border:1px solid #3a5576;border-radius:10px;z-index:4}
+#status{position:absolute;top:52px;left:10px;z-index:5;background:#101b30cc;border:1px solid #314968;padding:7px 10px;border-radius:10px;font-size:12px}
+#help{position:absolute;bottom:55px;left:10px;z-index:4;color:#a8bfd8;font-size:11px;max-width:55%}
+</style>
+</head>
+<body>
+<header><div class="brand">POCKETVR // SANDBOX</div><button id="vr">SBS: ON</button></header>
+<div id="status">Starting sandbox…</div>
+<div id="views"><div class="view" id="left"></div><div class="view" id="right"></div></div>
+<video id="camera" autoplay playsinline muted></video>
+<div id="help">Pinch to grab objects when hand tracking is active. Drag with touch as a fallback.</div>
+<div id="hud"><button id="camBtn">Enable hand camera</button><button id="reset">Reset world</button><button id="throw">Throw selected</button></div>
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+const status=document.querySelector('#status');
+let handReady=false, selected=null, pinch=false, prevPinch=false, lastX=0,lastY=0;
+const worlds=[];
+function makeWorld(el, eye){
+ const scene=new THREE.Scene(); scene.background=new THREE.Color(0x070b16);
+ scene.fog=new THREE.Fog(0x070b16,8,24);
+ const camera=new THREE.PerspectiveCamera(72,el.clientWidth/el.clientHeight,.1,100);
+ camera.position.set(eye*.035,1.5,6);
+ const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});
+ renderer.setPixelRatio(Math.min(devicePixelRatio,1.7)); renderer.setSize(el.clientWidth,el.clientHeight);
+ renderer.outputColorSpace=THREE.SRGBColorSpace; el.appendChild(renderer.domElement);
+ scene.add(new THREE.HemisphereLight(0x9feaff,0x211338,2));
+ const light=new THREE.DirectionalLight(0xffffff,2);light.position.set(3,7,5);scene.add(light);
+ const floor=new THREE.Mesh(new THREE.PlaneGeometry(40,40),new THREE.MeshStandardMaterial({color:0x111c30,roughness:.9}));
+ floor.rotation.x=-Math.PI/2;floor.position.y=-.45;scene.add(floor);
+ const grid=new THREE.GridHelper(40,40,0x236a88,0x20314c);grid.position.y=-.44;scene.add(grid);
+ const objs=[];
+ for(let i=0;i<12;i++){
+  const geo=i%3===0?new THREE.SphereGeometry(.28,24,16):i%3===1?new THREE.BoxGeometry(.48,.48,.48):new THREE.TorusKnotGeometry(.22,.07,60,8);
+  const mat=new THREE.MeshStandardMaterial({color:[0x22d3ee,0x8b5cf6,0xff4fa3,0x9eff6e][i%4],metalness:.25,roughness:.35,emissive:[0x06313b,0x21103b,0x3a0d27,0x17350b][i%4],emissiveIntensity:.35});
+  const obj=new THREE.Mesh(geo,mat);obj.position.set((i%4-1.5)*1.25,.2+Math.floor(i/4)*.85,-(i%3)*1.15);
+  obj.userData.baseY=obj.position.y;scene.add(obj);objs.push(obj);
+ }
+ worlds.push({scene,camera,renderer,objs,eye});
+ return worlds[worlds.length-1];
+}
+const left=makeWorld(document.querySelector('#left'),-1),right=makeWorld(document.querySelector('#right'),1);
+function animate(t){
+ requestAnimationFrame(animate);
+ for(const w of worlds){
+  w.objs.forEach((o,i)=>{o.rotation.x+=.002*(i%3+1);o.rotation.y+=.004*(i%4+1);if(o!==selected)o.position.y=o.userData.baseY+Math.sin(t*.0015+i)*.07;});
+  w.camera.position.x=(w.eye*.035)+(window.lookX||0)*.6;
+  w.camera.rotation.y=(window.lookX||0)*-.22;
+  w.camera.rotation.x=(window.lookY||0)*-.16;
+  w.renderer.render(w.scene,w.camera);
+ }
+}
+animate(0);
+function resize(){for(const w of worlds){const el=w.renderer.domElement.parentElement;w.camera.aspect=el.clientWidth/el.clientHeight;w.camera.updateProjectionMatrix();w.renderer.setSize(el.clientWidth,el.clientHeight);}}
+addEventListener('resize',resize);
+function reset(){for(const w of worlds)w.objs.forEach((o,i)=>{o.position.set((i%4-1.5)*1.25,.2+Math.floor(i/4)*.85,-(i%3)*1.15);o.userData.baseY=o.position.y;});selected=null;}
+document.querySelector('#reset').onclick=reset;
+document.querySelector('#throw').onclick=()=>{if(selected){selected.position.y+=.8;selected.rotation.x+=1.4;selected=null;}};
+document.querySelector('#vr').onclick=e=>{const on=document.querySelector('#views').style.gridTemplateColumns!=='1fr';document.querySelector('#views').style.gridTemplateColumns=on?'1fr':'1fr 1fr';document.querySelector('#right').style.display=on?'none':'block';e.target.textContent=on?'SBS: OFF':'SBS: ON';resize();};
+document.querySelectorAll('.view').forEach(el=>{
+ el.addEventListener('pointerdown',e=>{const w=el.id==='left'?left:right;const r=el.getBoundingClientRect();const x=((e.clientX-r.left)/r.width)*2-1,y=-((e.clientY-r.top)/r.height)*2+1;const ray=new THREE.Raycaster();ray.setFromCamera(new THREE.Vector2(x,y),w.camera);const hits=ray.intersectObjects(w.objs);if(hits.length){selected=hits[0].object;el.setPointerCapture(e.pointerId);}});
+ el.addEventListener('pointermove',e=>{if(selected&&e.buttons){selected.position.x+=(e.movementX/window.innerWidth)*4;selected.position.y-=(e.movementY/window.innerHeight)*4;}});
+ el.addEventListener('pointerup',()=>{selected=null;});
+});
+document.querySelector('#camBtn').onclick=async()=>{
+ try{
+  const v=document.querySelector('#camera');v.srcObject=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:640,height:480},audio:false});handReady=true;
+  status.textContent='Camera enabled • Hand model loading…';
+  const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js';s.onload=()=>{try{
+   const hands=new Hands({locateFile:(f)=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+   hands.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:.6,minTrackingConfidence:.5});
+   hands.onResults(r=>{if(!r.multiHandLandmarks?.length){status.textContent='Camera on • Show one hand';return;}
+    const lm=r.multiHandLandmarks[0],thumb=lm[4],index=lm[8];window.lookX=(index.x-.5)*2;window.lookY=(index.y-.5)*2;
+    const d=Math.hypot(thumb.x-index.x,thumb.y-index.y);pinch=d<.055;
+    status.textContent=pinch?'Pinch detected • use touch to select objects':'Hand tracked • pinch to grab';
+    prevPinch=pinch;
+   });
+   const loop=async()=>{if(v.readyState>=2){await hands.send({image:v});}requestAnimationFrame(loop);};loop();
+  }catch(e){status.textContent='Camera enabled; hand tracker could not start.';}};
+  document.head.appendChild(s);
+ }catch(e){status.textContent='Camera blocked. Allow camera permission in Android settings.';}
+};
+status.textContent='Sandbox ready • Enable camera for hand tracking';
+</script>
+</body></html>
